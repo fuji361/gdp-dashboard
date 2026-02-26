@@ -34,9 +34,18 @@ filtered_df = df[df['ステータス'].isin(status_filter)]
 
 # 4. トップ画面：エラー件数グラフ（時系列推移）
 st.subheader("📈 エラー発生件数の時系列推移")
-# 時系列用に集計
-chart_data = filtered_df.resample('H', on='日時').count()['ステータス']
-st.line_chart(chart_data)
+# 集計単位を選択できるようにする
+unit = st.radio("集計単位", ["日単位", "時間単位"], horizontal=True)
+unit_code = 'D' if unit == "日単位" else 'H'
+
+# 選択された単位で集計
+chart_data = filtered_df.resample(unit_code, on='日時').count()['ステータス']
+
+# グラフ表示
+if unit_code == 'D':
+    st.bar_chart(chart_data)
+else:
+    st.line_chart(chart_data)
 
 # 5. 詳細画面：ログ検索＋フィルタ
 st.divider()
