@@ -1,65 +1,120 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
+import math
+from pathlib import Path
 
-# 1. ページ設定
-st.set_page_config(page_title="ログ解析デモ", layout="wide")
-st.title("🛡️ ログ解析ダッシュボード（プロトタイプ）")
+# Set the title and favicon that appear in the Browser's tab bar.
+st.set_page_config(
+    page_title='GDP dashboard',
+    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+)
 
-# 2. 調査用ダミーデータの作成
+# -----------------------------------------------------------------------------
+# Declare some useful functions.
+
 @st.cache_data
-def load_dummy_data():
-    dates = [datetime.now() - timedelta(hours=i) for i in range(100)]
-    data = pd.DataFrame({
-        '日時': dates,
-        'ステータス': np.random.choice(['200', '404', '500'], 100),
-        'メッセージ': np.random.choice(['OK', 'Not Found', 'Internal Server Error'], 100),
-        'IPアドレス': [f"192.168.1.{i}" for i in range(100)]
-    })
-    return data
+def get_gdp_data():
+    """Grab GDP data from a CSV file.
 
-df = load_dummy_data()
+    This uses caching to avoid having to read the file every time. If we were
+    reading from an HTTP endpoint instead of a file, it's a good idea to set
+    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
+    """
 
-# 3. サイドバー：フィルタリング機能
-st.sidebar.header("フィルタ設定")
-# 期間指定
-start_date = st.sidebar.date_input("開始日", datetime.now() - timedelta(days=7))
-end_date = st.sidebar.date_input("終了日", datetime.now())
-# ステータスフィルタ
-status_filter = st.sidebar.multiselect("ステータスコード", options=['200', '404', '500'], default=['404', '500'])
+    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
+    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
+    raw_gdp_df = pd.read_csv(DATA_FILENAME)
 
-# データの絞り込み（擬似）
-filtered_df = df[df['ステータス'].isin(status_filter)]
+    MIN_YEAR = 1960
+    MAX_YEAR = 2022
 
-# 4. トップ画面：エラー件数グラフ（時系列推移）
-st.subheader("📈 エラー発生件数の時系列推移")
-# 集計単位を選択できるようにする
-unit = st.radio("集計単位", ["日単位", "時間単位"], horizontal=True)
-unit_code = 'D' if unit == "日単位" else 'H'
+    # The data above has columns like:
+    # - Country Name
+    # - Country Code
+    # - [Stuff I don't care about]
+    # - GDP for 1960
+    # - GDP for 1961
+    # - GDP for 1962
+    # - ...
+    # - GDP for 2022
+    #
+    # ...but I want this instead:
+    # - Country Name
+    # - Country Code
+    # - Year
+    # - GDP
+    #
+    # So let's pivot all those year-columns into two: Year and GDP
+    gdp_df = raw_gdp_df.melt(
+        ['Country Code'],
+        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
+        'Year',
+        'GDP',
+    )
 
-# 選択された単位で集計
-chart_data = filtered_df.resample(unit_code, on='日時').count()['ステータス']
+    # Convert years from string to integers
+    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
 
-# グラフ表示
-if unit_code == 'D':
-    st.bar_chart(chart_data)
-else:
-    st.line_chart(chart_data)
+    return gdp_df
 
-# 5. 詳細画面：ログ検索＋フィルタ
-st.divider()
-st.subheader("🔍 詳細ログ検索")
+gdp_df = get_gdp_data()
 
-# 検索窓
-search_query = st.text_input("キーワード検索 (メッセージやIPなど)")
-if search_query:
-    filtered_df = filtered_df[filtered_df.astype(str).apply(lambda x: x.str.contains(search_query)).any(axis=1)]
+# -----------------------------------------------------------------------------
+# Draw the actual page
 
-# 詳細表示（データフレーム）
-st.dataframe(filtered_df, use_container_width=True)
+# Set the title that appears at the top of the page.
+'''
+# :earth_americas: GDP dashboard
 
-# ログ詳細（st.expander + st.json の組み合わせ例）
-if not filtered_df.empty:
-    with st.expander("選択したログのJSON全文を確認"):
-        st.json(filtered_df.iloc[0].to_dict())
+Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
+notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
+But it's otherwise a great (and did I mention _free_?) source of data.
+'''
+
+# Add some spacing
+''
+''
+
+min_value = gdp_df['Year'].min()
+max_value = gdp_df['Year'].max()
+
+from_year, to_year = st.slider(
+    'Which years are you interested in?',
+    min_value=min_value,
+    max_value=max_value,
+    value=[min_value, max_value])
+
+countries = gdp_df['Country Code'].unique()
+
+if not len(countries):
+    st.warning("Select at least one country")
+
+selected_countries = st.multiselect(
+    'Which countries would you like to view?',
+    countries,
+    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
+
+''
+''
+''
+
+# Filter the data
+filtered_gdp_df = gdp_df[
+    (gdp_df['Country Code'].isin(selected_countries))
+    & (gdp_df['Year'] <= to_year)
+    & (from_year <= gdp_df['Year'])
+]
+
+st.header('GDP over time', divider='gray')
+
+''
+
+st.line_chart(
+    filtered_gdp_df,
+    x='Year',
+    y='GDP',
+    color='Country Code',
+)
+
+''
+''
